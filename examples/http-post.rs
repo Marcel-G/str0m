@@ -48,7 +48,7 @@ pub fn main() {
 // Handle a web request.
 fn web_request(request: &Request) -> Response {
     if request.method() == "GET" {
-        return Response::html(include_str!("http-post.html"));
+        return Response::html(include_str!("data-channel-close.html"));
     }
 
     // Expected POST SDP Offers.

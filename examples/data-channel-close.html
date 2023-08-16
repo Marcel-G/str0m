@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>WebRTC Close data channel example</title>
+    <style>
+        body {
+            background: black;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+    <button id="run" disabled="true" onClick="run()">Run</button>
+    <button id="rtc" onClick="startRtc()">Connect</button>
+    <br />
+
+    <div id="logs"></div>
+    <script>
+        let startChannel = false;
+        let dataChannel;
+        let pc = new RTCPeerConnection();
+        const byId = (id) => document.getElementById(id);
+        const byTag = (tag) => [].slice.call(document.getElementsByTagName(tag));
+
+        let log = msg => {
+            document.getElementById('logs').innerHTML += msg + '<br>'
+        }
+
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+        const testQueue = [];
+
+        const it = (description, fn) => {
+            setupQueue = [];
+            testQueue.push({ description, fn });
+        }
+
+        const run = async () => {
+            for (const test of testQueue) {
+                log(`["${test.description}"] running...`)
+                try {
+                    await test.fn();
+                    log(`["${test.description}"] passed ✅`)
+                } catch (e) {
+                    log(`["${test.description}"] failed ❌ - ${e.message}`)
+                }
+            }
+        }
+
+        it('should fully close the data channel when calling close()', async () => {
+            const channel = pc.createDataChannel('')
+
+            await new Promise((resolve) => {
+                channel.onopen = resolve
+            })
+
+            if (channel.readyState !== 'open') {
+                throw new Error('channel is not open')
+            }
+
+            channel.close()
+
+            if (channel.readyState === 'open') {
+                throw new Error('channel should not be open after close')
+            }
+
+            await Promise.race([
+                new Promise((resolve) => {
+                    channel.onclose = resolve
+                }),
+                wait(1000).then(() => { throw new Error('channel should close within 1s') })
+            ])
+
+            if (channel.readyState !== 'closed') {
+                throw new Error('channel should be closed after close')
+            }
+        })
+
+        it("should fully close all data channels when closing many", async () => {
+            const channels = Array.from({ length: 10 }, () => pc.createDataChannel(""));
+
+            await Promise.all(
+                channels.map(
+                    (channel) =>
+                        new Promise((resolve) => {
+                            channel.onopen = resolve;
+                        })
+                )
+            );
+
+            if (channels.some((channel) => channel.readyState !== "open")) {
+                throw new Error("all channels is not open");
+            }
+
+            for (const channel of channels) {
+                channel.close();
+            }
+
+            if (channels.some((channel) => channel.readyState === "open")) {
+                throw new Error("all channels should not be open after close");
+            }
+
+            await Promise.all(
+                channels.map((channel) =>
+                    Promise.race([
+                        new Promise((resolve) => {
+                            channel.onclose = resolve;
+                        }),
+                        wait(1000).then(() => {
+                            throw new Error(`channel ${channel.id} did not close within 1s`);
+                        }),
+                    ])
+                )
+            );
+
+            if (channels.some((channel) => channel.readyState !== "closed")) {
+                throw new Error("all channels should be closed after close");
+            }
+        });
+
+        it("should fully close all data channels when closing many sequentially", async () => {
+            for (const _ in Array.from({ length: 10 })) {
+                const channel = pc.createDataChannel("");
+
+                await new Promise((resolve) => {
+                    channel.onopen = resolve;
+                });
+
+                if (channel.readyState !== "open") {
+                    throw new Error(`channel ${channel.id} is not open`);
+                }
+
+                channel.close();
+
+                if (channel.readyState === "open") {
+                    throw new Error(`channel ${channel.id} should not be open after close`);
+                }
+
+                await Promise.race([
+                    new Promise((resolve) => {
+                        channel.onclose = resolve;
+                    }),
+                    wait(1000).then(() => {
+                        throw new Error(`channel ${channel.id} should close within 1s`);
+                    }),
+                ]);
+
+                if (channel.readyState !== "closed") {
+                    throw new Error(`channel ${channel.id} should be closed after close`);
+                }
+            }
+        });
+
+        async function startRtc() {
+            const init = pc.createDataChannel("");
+            byTag('button').forEach(b => b.disabled = true);
+            const offer = await pc.createOffer();
+            pc.setLocalDescription(offer);
+            console.log(offer.sdp.split('\r\n'));
+
+            const res = await fetch('', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(offer),
+            });
+
+            const answer = await res.json();
+            pc.setRemoteDescription(answer);
+            init.close()
+            console.log(answer.sdp.split('\r\n'));
+            byId("run").disabled = false;
+        }
+    </script>
+</body>
+
+</html>
